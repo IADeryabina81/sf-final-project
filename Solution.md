@@ -546,3 +546,55 @@ on t.company_id = p.company_id
 Для редких (пока) «долгожителей» платформы предложить вариант подписки на 2 месяца. 
 Её же (на 2 месяца) можно рассмотреть для обучения корпоративных клиентов. Хотя тут, конечно, нужно учитывать их цели обучения. Если это получение каких-то базовых знаний, то 2 месяца более чем достаточно, по-моему. А если более глубокое погружение требуется, то нужен более длительный период. 
 Пересмотр вариантов подписок и сроков сделать после работы над невысоким процентом пробующих работать с платформой сразу после регистрации, а также сбора статистики за более длительный период и наблюдений за динамикой показателей rolling retention. 
+
+Дополнительное задание 2
+Для выгрузки данных используем SQL-запрос:
+--объединяем таблицы для получения общего списка активностей по работе пользователей с задачами и тестами
+with united_table as (
+select 
+	created_at,
+	user_id
+from coderun c 
+union all
+select 
+	created_at,
+	user_id 
+from codesubmit c 
+union all
+select 
+	created_at,
+	user_id
+from teststart t 
+),
+--дополнительно выводим из даты-времени активностей день недели и час дня. Часы распределяем на периоды по 3 часа, т.е. 0-3, 3-6, 6-9 и т.д.
+day_hour_table as (
+select *,
+	extract (isodow from ut.created_at :: date) as nd,
+	to_char(ut.created_at :: date, 'Day') as wday,
+	date_part('hour', ut.created_at) as hour,
+	case when date_part('hour', ut.created_at)<3 then '1 (0-3)'
+		when date_part('hour', ut.created_at)<6 then '2 (3-6)'
+		when date_part('hour', ut.created_at)<9 then '3 (6-9)'
+		when date_part('hour', ut.created_at)<12 then '4 (9-12)'
+		when date_part('hour', ut.created_at)<15 then '5 (12-15)'
+		when date_part('hour', ut.created_at)<18 then '6 (15-18)'
+		when date_part('hour', ut.created_at)<21 then '7 (18-21)'
+		when date_part('hour', ut.created_at)<=23 then '8 (21-24)'
+	else null end as hour_period 
+from united_table ut
+)
+--подсчитываем кол-во транзакций в каждый день за каждый трехчасовой промежуток времени и кол-во пользователей, которое их совершает
+select 
+	nd,
+	wday,
+	hour_period,
+	count (user_id) as cnt_activities,
+	count (distinct user_id) as cnt_users
+from day_hour_table
+group by nd, wday, hour_period 
+order by nd, wday, hour_period
+
+Выводы:
+Наибольшую активность пользователи проявляют в промежутке с 06:00 до 21:00 как в будние дни, так и в выходные. 
+При этом суммарно по транзакциям и пользователям в выходные активность снижается примерно на 25%. Но все равно уже в период с 6 до 9 утра нагрузка ощутимо подрастает в сравнении с промежутком 3:00-6:00.
+Поэтому я предлагаю в качестве стандартного окна для технических работ рассматривать период с 21:00 по 06:00 ежедневно.
